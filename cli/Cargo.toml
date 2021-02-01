@@ -6,4 +6,4 @@ authors = ["Takahiro"]
 [dependencies]
 getopts = "0.2"
 pancurses = "0.16.1"
-riscv_emu_rust = {path = "../"}
+riscv_emu_rust = {path = "../", features = ["instant-uart-out"]}

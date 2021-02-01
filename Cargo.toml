@@ -13,6 +13,10 @@ exclude = [
   "wasm/*"
 ]
 
+[features]
+default = []
+instant-uart-out = []
+
 [workspace]
 members = [".", "cli", "wasm"]
 
