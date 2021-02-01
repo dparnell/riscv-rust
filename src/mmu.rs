@@ -15,6 +15,7 @@ use device::plic::Plic;
 use device::clint::Clint;
 use device::uart::Uart;
 use terminal::Terminal;
+use host::Host;
 
 /// Emulates Memory Management Unit. It holds the Main memory and peripheral
 /// devices, maps address to them, and accesses them depending on address.
@@ -33,6 +34,7 @@ pub struct Mmu {
 	plic: Plic,
 	clint: Clint,
 	uart: Uart,
+	host: Box<dyn Host>,
 
 	/// Address translation can be affected `mstatus` (MPRV, MPP in machine mode)
 	/// then `Mmu` has copy of it.
@@ -84,7 +86,7 @@ impl Mmu {
 	/// # Arguments
 	/// * `xlen`
 	/// * `terminal`
-	pub fn new(xlen: Xlen, terminal: Box<dyn Terminal>) -> Self {
+	pub fn new(xlen: Xlen, terminal: Box<dyn Terminal>, host: Box<dyn Host>) -> Self {
 		let mut dtb = vec![0; DTB_SIZE];
 
 		// Load default device tree binary content
@@ -105,6 +107,7 @@ impl Mmu {
 			plic: Plic::new(),
 			clint: Clint::new(),
 			uart: Uart::new(terminal),
+			host,
 			mstatus: 0,
 			page_cache_enabled: false,
 			fetch_page_cache: FnvHashMap::default(),
@@ -468,6 +471,7 @@ impl Mmu {
 				// It might be from self.x[0xb] initialization?
 				// And DTB size is arbitray.
 				0x00001020..=0x00001fff => self.dtb[effective_address as usize - 0x1020],
+				0x00010000..=0x0001FFFF => self.host.load(effective_address),
 				0x02000000..=0x0200ffff => self.clint.load(effective_address),
 				0x0C000000..=0x0fffffff => self.plic.load(effective_address),
 				0x10000000..=0x100000ff => self.uart.load(effective_address),
@@ -549,6 +553,7 @@ impl Mmu {
 		match effective_address >= DRAM_BASE {
 			true => self.memory.write_byte(effective_address, value),
 			false => match effective_address {
+				0x00010000..=0x0001FFFF => self.host.store(effective_address, value),
 				0x02000000..=0x0200ffff => self.clint.store(effective_address, value),
 				0x0c000000..=0x0fffffff => self.plic.store(effective_address, value),
 				0x10000000..=0x100000ff => self.uart.store(effective_address, value),

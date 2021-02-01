@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::Read;
 
 use getopts::Options;
+use riscv_emu_rust::host::DummyHost;
 
 enum TerminalType {
 	PopupTerminal,
@@ -101,7 +102,7 @@ fn main () -> std::io::Result<()> {
 		false => TerminalType::PopupTerminal
 	};
 
-	let mut emulator = Emulator::new(get_terminal(terminal_type));
+	let mut emulator = Emulator::new(get_terminal(terminal_type), Box::new(DummyHost::new()));
 	emulator.setup_program(elf_contents);
 	
 	match matches.opt_str("x") {
