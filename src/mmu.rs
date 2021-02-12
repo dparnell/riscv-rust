@@ -447,6 +447,11 @@ impl Mmu {
 		self.store_bytes(v_address, value as u64, 8)
 	}
 
+
+	/// Translates the effective address into a device
+	///
+	/// # Arguments
+	/// * `effective_address` the resolved virtual address
 	fn device_from_effective_address(&mut self, effective_address: u64) -> &mut dyn Device {
 		// @TODO: Mapping should be configurable with dtb
 		match effective_address >= DRAM_BASE {
