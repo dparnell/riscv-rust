@@ -4,7 +4,7 @@ use self::fnv::FnvHashMap;
 
 use mmu::{AddressingMode, Mmu};
 use terminal::Terminal;
-use host::Host;
+use device::device::Device;
 
 const CSR_CAPACITY: usize = 4096;
 
@@ -219,7 +219,7 @@ impl Cpu {
 	///
 	/// # Arguments
 	/// * `Terminal`
-	pub fn new(terminal: Box<dyn Terminal>, host: Box<dyn Host>) -> Self {
+	pub fn new(terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
 		let mut cpu = Cpu {
 			clock: 0,
 			xlen: Xlen::Bit64,

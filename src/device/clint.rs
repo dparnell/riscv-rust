@@ -1,4 +1,5 @@
 use cpu::{MIP_MSIP, MIP_MTIP};
+use device::device::Device;
 
 /// Emulates CLINT known as Timer. Refer to the [specification](https://sifive.cdn.prismic.io/sifive%2Fc89f6e5a-cf9e-44c3-a3db-04420702dcc1_sifive+e31+manual+v19.08.pdf)
 /// for the detail.
@@ -38,11 +39,90 @@ impl Clint {
 		}
 	}
 
+	/// Reads `mtime` register content
+	pub fn read_mtime(&self) -> u64 {
+		self.mtime
+	}
+
+	/// Writes to `mtime` register content
+	pub fn write_mtime(&mut self, value: u64) {
+		self.mtime = value;
+	}
+}
+
+impl Device for Clint {
+
+	/// Stores register content.
+	///
+	/// # Arguments
+	/// * `address`
+	/// * `value`
+	fn store_u8(&mut self, address: u64, value: u8) {
+		//println!("CLINT Store AD:{:X} VAL:{:X}", address, value);
+		match address {
+			// MSIP register 4 bytes. Upper 31 bits are hardwired to zero.
+			0x02000000 => {
+				self.msip = (self.msip & !0x1) | ((value & 1) as u32);
+			},
+			// MTIMECMP Registers 8 bytes
+			0x02004000 => {
+				self.mtimecmp = (self.mtimecmp & !0xff) | (value as u64);
+			},
+			0x02004001 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 8)) | ((value as u64) << 8);
+			},
+			0x02004002 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 16)) | ((value as u64) << 16);
+			},
+			0x02004003 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 24)) | ((value as u64) << 24);
+			},
+			0x02004004 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 32)) | ((value as u64) << 32);
+			},
+			0x02004005 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 40)) | ((value as u64) << 40);
+			},
+			0x02004006 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 48)) | ((value as u64) << 48);
+			},
+			0x02004007 => {
+				self.mtimecmp = (self.mtimecmp & !(0xff << 56)) | ((value as u64) << 56);
+			},
+			// MTIME registers 8 bytes
+			0x0200bff8 => {
+				self.mtime = (self.mtime & !0xff) | (value as u64);
+			},
+			0x0200bff9 => {
+				self.mtime = (self.mtime & !(0xff << 8)) | ((value as u64) << 8);
+			},
+			0x0200bffa => {
+				self.mtime = (self.mtime & !(0xff << 16)) | ((value as u64) << 16);
+			},
+			0x0200bffb => {
+				self.mtime = (self.mtime & !(0xff << 24)) | ((value as u64) << 24);
+			},
+			0x0200bffc => {
+				self.mtime = (self.mtime & !(0xff << 32)) | ((value as u64) << 32);
+			},
+			0x0200bffd => {
+				self.mtime = (self.mtime & !(0xff << 40)) | ((value as u64) << 40);
+			},
+			0x0200bffe => {
+				self.mtime = (self.mtime & !(0xff << 48)) | ((value as u64) << 48);
+			},
+			0x0200bfff => {
+				self.mtime = (self.mtime & !(0xff << 56)) | ((value as u64) << 56);
+			},
+			_ => {}
+		};
+	}
+
 	/// Loads register content.
 	///
 	/// # Arguments
 	/// * `address`
-	pub fn load(&self, address: u64) -> u8 {
+	fn load_u8(&mut self, address: u64) -> u8 {
 		//println!("CLINT Load AD:{:X}", address);
 		match address {
 			// MSIP register 4 bytes
@@ -109,81 +189,5 @@ impl Clint {
 			},
 			_ => 0,
 		}
-	}
-
-	/// Stores register content.
-	///
-	/// # Arguments
-	/// * `address`
-	/// * `value`
-	pub fn store(&mut self, address: u64, value: u8) {
-		//println!("CLINT Store AD:{:X} VAL:{:X}", address, value);
-		match address {
-			// MSIP register 4 bytes. Upper 31 bits are hardwired to zero.
-			0x02000000 => {
-				self.msip = (self.msip & !0x1) | ((value & 1) as u32);
-			},
-			// MTIMECMP Registers 8 bytes
-			0x02004000 => {
-				self.mtimecmp = (self.mtimecmp & !0xff) | (value as u64);
-			},
-			0x02004001 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 8)) | ((value as u64) << 8);
-			},
-			0x02004002 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 16)) | ((value as u64) << 16);
-			},
-			0x02004003 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 24)) | ((value as u64) << 24);
-			},
-			0x02004004 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 32)) | ((value as u64) << 32);
-			},
-			0x02004005 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 40)) | ((value as u64) << 40);
-			},
-			0x02004006 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 48)) | ((value as u64) << 48);
-			},
-			0x02004007 => {
-				self.mtimecmp = (self.mtimecmp & !(0xff << 56)) | ((value as u64) << 56);
-			},
-			// MTIME registers 8 bytes
-			0x0200bff8 => {
-				self.mtime = (self.mtime & !0xff) | (value as u64);
-			},
-			0x0200bff9 => {
-				self.mtime = (self.mtime & !(0xff << 8)) | ((value as u64) << 8);
-			},
-			0x0200bffa => {
-				self.mtime = (self.mtime & !(0xff << 16)) | ((value as u64) << 16);
-			},
-			0x0200bffb => {
-				self.mtime = (self.mtime & !(0xff << 24)) | ((value as u64) << 24);
-			},
-			0x0200bffc => {
-				self.mtime = (self.mtime & !(0xff << 32)) | ((value as u64) << 32);
-			},
-			0x0200bffd => {
-				self.mtime = (self.mtime & !(0xff << 40)) | ((value as u64) << 40);
-			},
-			0x0200bffe => {
-				self.mtime = (self.mtime & !(0xff << 48)) | ((value as u64) << 48);
-			},
-			0x0200bfff => {
-				self.mtime = (self.mtime & !(0xff << 56)) | ((value as u64) << 56);
-			},
-			_ => {}
-		};
-	}
-
-	/// Reads `mtime` register content
-	pub fn read_mtime(&self) -> u64 {
-		self.mtime
-	}
-
-	/// Writes to `mtime` register content
-	pub fn write_mtime(&mut self, value: u64) {
-		self.mtime = value;
 	}
 }

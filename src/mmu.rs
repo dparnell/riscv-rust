@@ -2,8 +2,6 @@
 /// is the address in main memory.
 pub const DRAM_BASE: u64 = 0x80000000;
 
-const DTB_SIZE: usize = 0xfe0;
-
 extern crate fnv;
 
 use self::fnv::FnvHashMap;
@@ -15,7 +13,8 @@ use device::plic::Plic;
 use device::clint::Clint;
 use device::uart::Uart;
 use terminal::Terminal;
-use host::Host;
+use device::device::Device;
+use device::dtb::Dtb;
 
 /// Emulates Memory Management Unit. It holds the Main memory and peripheral
 /// devices, maps address to them, and accesses them depending on address.
@@ -29,12 +28,12 @@ pub struct Mmu {
 	addressing_mode: AddressingMode,
 	privilege_mode: PrivilegeMode,
 	memory: MemoryWrapper,
-	dtb: Vec<u8>,
+	dtb: Dtb,
 	disk: VirtioBlockDisk,
 	plic: Plic,
 	clint: Clint,
 	uart: Uart,
-	host: Box<dyn Host>,
+	host: Box<dyn Device>,
 
 	/// Address translation can be affected `mstatus` (MPRV, MPP in machine mode)
 	/// then `Mmu` has copy of it.
@@ -86,14 +85,11 @@ impl Mmu {
 	/// # Arguments
 	/// * `xlen`
 	/// * `terminal`
-	pub fn new(xlen: Xlen, terminal: Box<dyn Terminal>, host: Box<dyn Host>) -> Self {
-		let mut dtb = vec![0; DTB_SIZE];
-
+	pub fn new(xlen: Xlen, terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
 		// Load default device tree binary content
 		let content = include_bytes!("./device/dtb.dtb");
-		for i in 0..content.len() {
-			dtb[i] = content[i];
-		}
+		let mut dtb = vec![0; content.len()];
+		dtb.copy_from_slice(content);
 
 		Mmu {
 			clock: 0,
@@ -102,7 +98,7 @@ impl Mmu {
 			addressing_mode: AddressingMode::None,
 			privilege_mode: PrivilegeMode::Machine,
 			memory: MemoryWrapper::new(),
-			dtb: dtb,
+			dtb: Dtb::new(0x00001020, dtb),
 			disk: VirtioBlockDisk::new(),
 			plic: Plic::new(),
 			clint: Clint::new(),
@@ -141,17 +137,12 @@ impl Mmu {
 		self.disk.init(data);
 	}
 
-	/// Overrides defalut Device tree configuration.
+	/// Overrides default Device tree configuration.
 	///
 	/// # Arguments
 	/// * `data` DTB binary content
 	pub fn init_dtb(&mut self, data: Vec<u8>) {
-		for i in 0..data.len() {
-			self.dtb[i] = data[i];
-		}
-		for i in data.len()..self.dtb.len() {
-			self.dtb[i] = 0;
-		}
+		self.dtb.init(data);
 	}
 
 	/// Enables or disables page cache optimization.
@@ -456,6 +447,25 @@ impl Mmu {
 		self.store_bytes(v_address, value as u64, 8)
 	}
 
+	fn device_from_effective_address(&mut self, effective_address: u64) -> &mut dyn Device {
+		// @TODO: Mapping should be configurable with dtb
+		match effective_address >= DRAM_BASE {
+			true => &mut self.memory,
+			false => match effective_address {
+				// I don't know why but dtb data seems to be stored from 0x1020 on Linux.
+				// It might be from self.x[0xb] initialization?
+				// And DTB size is arbitray.
+				0x00001020..=0x00001fff => &mut self.dtb,
+				0x00010000..=0x0001FFFF => self.host.as_mut(),
+				0x02000000..=0x0200ffff => &mut self.clint,
+				0x0C000000..=0x0fffffff => &mut self.plic,
+				0x10000000..=0x100000ff => &mut self.uart,
+				0x10001000..=0x10001FFF => &mut self.disk,
+				_ => panic!("Unknown memory mapping {:X}.", effective_address)
+			}
+		}
+	}
+
 	/// Loads a byte from main memory or peripheral devices depending on
 	/// physical address.
 	///
@@ -463,22 +473,9 @@ impl Mmu {
 	/// * `p_address` Physical address
 	fn load_raw(&mut self, p_address: u64) -> u8 {
 		let effective_address = self.get_effective_address(p_address);
-		// @TODO: Mapping should be configurable with dtb
-		match effective_address >= DRAM_BASE {
-			true => self.memory.read_byte(effective_address),
-			false => match effective_address {
-				// I don't know why but dtb data seems to be stored from 0x1020 on Linux.
-				// It might be from self.x[0xb] initialization?
-				// And DTB size is arbitray.
-				0x00001020..=0x00001fff => self.dtb[effective_address as usize - 0x1020],
-				0x00010000..=0x0001FFFF => self.host.load(effective_address),
-				0x02000000..=0x0200ffff => self.clint.load(effective_address),
-				0x0C000000..=0x0fffffff => self.plic.load(effective_address),
-				0x10000000..=0x100000ff => self.uart.load(effective_address),
-				0x10001000..=0x10001FFF => self.disk.load(effective_address),
-				_ => panic!("Unknown memory mapping {:X}.", effective_address)
-			}
-		}
+
+		let device = self.device_from_effective_address(effective_address);
+		device.load_u8(effective_address)
 	}
 
 	/// Loads two bytes from main memory or peripheral devices depending on
@@ -488,9 +485,13 @@ impl Mmu {
 	/// * `p_address` Physical address
 	fn load_halfword_raw(&mut self, p_address: u64) -> u16 {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(1) > effective_address {
-			// Fast path. Directly load main memory at a time.
-			true => self.memory.read_halfword(effective_address),
+		match effective_address.wrapping_add(1) > effective_address {
+			// Fast path. Directly load from device in a single operation
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+
+				device.load_u16(effective_address)
+			},
 			false => {
 				let mut data = 0 as u16;
 				for i in 0..2 {
@@ -508,9 +509,13 @@ impl Mmu {
 	/// * `p_address` Physical address
 	pub fn load_word_raw(&mut self, p_address: u64) -> u32 {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(3) > effective_address {
-			// Fast path. Directly load main memory at a time.
-			true => self.memory.read_word(effective_address),
+		match effective_address.wrapping_add(3) > effective_address {
+			// Fast path. Directly load from the device
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+
+				device.load_u32(effective_address)
+			},
 			false => {
 				let mut data = 0 as u32;
 				for i in 0..4 {
@@ -528,9 +533,13 @@ impl Mmu {
 	/// * `p_address` Physical address
 	fn load_doubleword_raw(&mut self, p_address: u64) -> u64 {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(7) > effective_address {
-			// Fast path. Directly load main memory at a time.
-			true => self.memory.read_doubleword(effective_address),
+		match effective_address.wrapping_add(7) > effective_address {
+			// Fast path. Directly load from the device
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+
+				device.load_u64(effective_address)
+			},
 			false => {
 				let mut data = 0 as u64;
 				for i in 0..8 {
@@ -549,18 +558,9 @@ impl Mmu {
 	/// * `value` data written
 	pub fn store_raw(&mut self, p_address: u64, value: u8) {
 		let effective_address = self.get_effective_address(p_address);
-		// @TODO: Mapping should be configurable with dtb
-		match effective_address >= DRAM_BASE {
-			true => self.memory.write_byte(effective_address, value),
-			false => match effective_address {
-				0x00010000..=0x0001FFFF => self.host.store(effective_address, value),
-				0x02000000..=0x0200ffff => self.clint.store(effective_address, value),
-				0x0c000000..=0x0fffffff => self.plic.store(effective_address, value),
-				0x10000000..=0x100000ff => self.uart.store(effective_address, value),
-				0x10001000..=0x10001FFF => self.disk.store(effective_address, value),
-				_ => panic!("Unknown memory mapping {:X}.", effective_address)
-			}
-		};
+		let device = self.device_from_effective_address(effective_address);
+
+		device.store_u8(effective_address, value);
 	}
 
 	/// Stores two bytes to main memory or peripheral devices depending on
@@ -571,9 +571,12 @@ impl Mmu {
 	/// * `value` data written
 	fn store_halfword_raw(&mut self, p_address: u64, value: u16) {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(1) > effective_address {
-			// Fast path. Directly store to main memory at a time.
-			true => self.memory.write_halfword(effective_address, value),
+		match effective_address.wrapping_add(1) > effective_address {
+			// Fast path. Directly store to the device
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+				device.store_u16(effective_address, value);
+			},
 			false => {
 				for i in 0..2 {
 					self.store_raw(effective_address.wrapping_add(i), ((value >> (i * 8)) & 0xff) as u8);
@@ -590,9 +593,12 @@ impl Mmu {
 	/// * `value` data written
 	fn store_word_raw(&mut self, p_address: u64, value: u32) {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(3) > effective_address {
-			// Fast path. Directly store to main memory at a time.
-			true => self.memory.write_word(effective_address, value),
+		match effective_address.wrapping_add(3) > effective_address {
+			// Fast path. Directly store to the device
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+				device.store_u32(effective_address, value);
+			},
 			false => {
 				for i in 0..4 {
 					self.store_raw(effective_address.wrapping_add(i), ((value >> (i * 8)) & 0xff) as u8);
@@ -609,9 +615,12 @@ impl Mmu {
 	/// * `value` data written
 	fn store_doubleword_raw(&mut self, p_address: u64, value: u64) {
 		let effective_address = self.get_effective_address(p_address);
-		match effective_address >= DRAM_BASE && effective_address.wrapping_add(7) > effective_address {
-			// Fast path. Directly store to main memory at a time.
-			true => self.memory.write_doubleword(effective_address, value),
+		match effective_address.wrapping_add(7) > effective_address {
+			// Fast path. Directly store to the device
+			true => {
+				let device = self.device_from_effective_address(effective_address);
+				device.store_u64(effective_address, value);
+			},
 			false => {
 				for i in 0..8 {
 					self.store_raw(effective_address.wrapping_add(i), ((value >> (i * 8)) & 0xff) as u8);
@@ -888,53 +897,55 @@ impl MemoryWrapper {
 		self.memory.init(capacity);
 	}
 
-	pub fn read_byte(&mut self, p_address: u64) -> u8 {
-		debug_assert!(p_address >= DRAM_BASE, "Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
-		self.memory.read_byte(p_address - DRAM_BASE)
+	pub fn validate_address(&self, address: u64) -> bool {
+		self.memory.validate_address(address - DRAM_BASE)
 	}
+}
 
-	pub fn read_halfword(&mut self, p_address: u64) -> u16 {
-		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(1) >= DRAM_BASE,
-			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
-		self.memory.read_halfword(p_address - DRAM_BASE)
-	}
-
-	pub fn read_word(&mut self, p_address: u64) -> u32 {
-		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(3) >= DRAM_BASE,
-			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
-		self.memory.read_word(p_address - DRAM_BASE)
-	}
-
-	pub fn read_doubleword(&mut self, p_address: u64) -> u64 {
-		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(7) >= DRAM_BASE,
-			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
-		self.memory.read_doubleword(p_address - DRAM_BASE)
-	}
-
-	pub fn write_byte(&mut self, p_address: u64, value: u8) {
+impl Device for MemoryWrapper {
+	fn store_u8(&mut self, p_address: u64, value: u8) {
 		debug_assert!(p_address >= DRAM_BASE, "Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
 		self.memory.write_byte(p_address - DRAM_BASE, value)
 	}
 
-	pub fn write_halfword(&mut self, p_address: u64, value: u16) {
+	fn store_u16(&mut self, p_address: u64, value: u16) {
 		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(1) >= DRAM_BASE,
 			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
 		self.memory.write_halfword(p_address - DRAM_BASE, value)
 	}
 
-	pub fn write_word(&mut self, p_address: u64, value: u32) {
+	fn store_u32(&mut self, p_address: u64, value: u32) {
 		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(3) >= DRAM_BASE,
 			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
 		self.memory.write_word(p_address - DRAM_BASE, value)
 	}
 
-	pub fn write_doubleword(&mut self, p_address: u64, value: u64) {
+	fn store_u64(&mut self, p_address: u64, value: u64) {
 		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(7) >= DRAM_BASE,
 			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
 		self.memory.write_doubleword(p_address - DRAM_BASE, value)
 	}
 
-	pub fn validate_address(&self, address: u64) -> bool {
-		self.memory.validate_address(address - DRAM_BASE)
+	fn load_u8(&mut self, p_address: u64) -> u8 {
+		debug_assert!(p_address >= DRAM_BASE, "Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
+		self.memory.read_byte(p_address - DRAM_BASE)
+	}
+
+	fn load_u16(&mut self, p_address: u64) -> u16 {
+		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(1) >= DRAM_BASE,
+			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
+		self.memory.read_halfword(p_address - DRAM_BASE)
+	}
+
+	fn load_u32(&mut self, p_address: u64) -> u32 {
+		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(3) >= DRAM_BASE,
+			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
+		self.memory.read_word(p_address - DRAM_BASE)
+	}
+
+	fn load_u64(&mut self, p_address: u64) -> u64 {
+		debug_assert!(p_address >= DRAM_BASE && p_address.wrapping_add(7) >= DRAM_BASE,
+			"Memory address must equals to or bigger than DRAM_BASE. {:X}", p_address);
+		self.memory.read_doubleword(p_address - DRAM_BASE)
 	}
 }

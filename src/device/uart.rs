@@ -1,4 +1,5 @@
 use terminal::Terminal;
+use device::device::Device;
 
 const IER_RXINT_BIT: u8 = 0x1;
 const IER_THREINT_BIT: u8 = 0x2;
@@ -120,42 +121,19 @@ impl Uart {
 		}
 	}
 
-	/// Loads register content
-	///
-	/// # Arguments
-	/// * `address`
-	pub fn load(&mut self, address: u64) -> u8 {
-		//println!("UART Load AD:{:X}", address);
-		match address {
-			0x10000000 => match (self.lcr >> 7) == 0 {
-				true => {
-					let rbr = self.rbr;
-					self.rbr = 0;
-					self.lsr &= !LSR_DATA_AVAILABLE;
-					self.update_iir();
-					rbr
-				},
-				false => 0 // @TODO: Implement properly
-			},
-			0x10000001 => match (self.lcr >> 7) == 0 {
-				true => self.ier,
-				false => 0 // @TODO: Implement properly
-			},
-			0x10000002 => self.iir,
-			0x10000003 => self.lcr,
-			0x10000004 => self.mcr,
-			0x10000005 => self.lsr,
-			0x10000007 => self.scr,
-			_ => 0
-		}
+	/// Returns mutable reference to `Terminal`.
+	pub fn get_mut_terminal(&mut self) -> &mut Box<dyn Terminal> {
+		&mut self.terminal
 	}
+}
 
+impl Device for Uart {
 	/// Stores register content
 	///
 	/// # Arguments
 	/// * `address`
 	/// * `value`
-	pub fn store(&mut self, address: u64, value: u8) {
+	fn store_u8(&mut self, address: u64, value: u8) {
 		//println!("UART Store AD:{:X} VAL:{:X}", address, value);
 		match address {
 			// Transfer Holding Register
@@ -194,8 +172,33 @@ impl Uart {
 		};
 	}
 
-	/// Returns mutable reference to `Terminal`.
-	pub fn get_mut_terminal(&mut self) -> &mut Box<dyn Terminal> {
-		&mut self.terminal
+	/// Loads register content
+	///
+	/// # Arguments
+	/// * `address`
+	fn load_u8(&mut self, address: u64) -> u8 {
+		//println!("UART Load AD:{:X}", address);
+		match address {
+			0x10000000 => match (self.lcr >> 7) == 0 {
+				true => {
+					let rbr = self.rbr;
+					self.rbr = 0;
+					self.lsr &= !LSR_DATA_AVAILABLE;
+					self.update_iir();
+					rbr
+				},
+				false => 0 // @TODO: Implement properly
+			},
+			0x10000001 => match (self.lcr >> 7) == 0 {
+				true => self.ier,
+				false => 0 // @TODO: Implement properly
+			},
+			0x10000002 => self.iir,
+			0x10000003 => self.lcr,
+			0x10000004 => self.mcr,
+			0x10000005 => self.lsr,
+			0x10000007 => self.scr,
+			_ => 0
+		}
 	}
 }

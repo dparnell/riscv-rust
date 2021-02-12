@@ -18,7 +18,7 @@ pub mod host;
 use cpu::{Cpu, Xlen};
 use elf_analyzer::{ElfAnalyzer};
 use terminal::Terminal;
-use host::Host;
+use device::device::Device;
 
 /// RISC-V emulator. It emulates RISC-V CPU and peripheral devices.
 ///
@@ -55,7 +55,7 @@ impl Emulator {
 	/// 
 	/// # Arguments
 	/// * `terminal`
-	pub fn new(terminal: Box<dyn Terminal>, host: Box<dyn Host>) -> Self {
+	pub fn new(terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
 		Emulator {
 			cpu: Cpu::new(terminal, host),
 

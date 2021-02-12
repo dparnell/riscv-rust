@@ -1,4 +1,5 @@
 use cpu::MIP_SEIP;
+use device::device::Device;
 
 // Based on SiFive Interrupt Cookbook
 // https://sifive.cdn.prismic.io/sifive/0d163928-2128-42be-a75a-464df65e04e0_sifive-interrupt-cookbook.pdf
@@ -98,8 +99,8 @@ impl Plic {
 			if ips[i] && enables[i] &&
 				priorities[i] > self.threshold &&
 				priorities[i] > priority {
-					irq = irqs[i];
-					priority = priorities[i];
+				irq = irqs[i];
+				priority = priorities[i];
 			}
 		}
 
@@ -121,50 +122,15 @@ impl Plic {
 		self.ips[index] = self.ips[index] & !(1 << irq);
 		self.needs_update_irq = true;
 	}
+}
 
-	/// Loads register content
-	///
-	/// # Arguments
-	/// * `address`
-	pub fn load(&self, address: u64) -> u8 {
-		//println!("PLIC Load AD:{:X}", address);
-		match address {
-			0x0c000000..=0x0c000fff => {
-				let offset = address % 4;
-				let index = ((address - 0xc000000) >> 2) as usize;
-				let pos = offset << 3;
-				(self.priorities[index] >> pos) as u8
-			},
-			0x0c001000..=0x0c00107f => {
-				let index = (address - 0xc001000) as usize;
-				self.ips[index]
-			},
-			0x0c002080 => self.enabled as u8,
-			0x0c002081 => (self.enabled >> 8) as u8,
-			0x0c002082 => (self.enabled >> 16) as u8,
-			0x0c002083 => (self.enabled >> 24) as u8,
-			0x0c002084 => (self.enabled >> 32) as u8,
-			0x0c002085 => (self.enabled >> 40) as u8,
-			0x0c002086 => (self.enabled >> 48) as u8,
-			0x0c002087 => (self.enabled >> 56) as u8,
-			0x0c201000 => self.threshold as u8,
-			0x0c201001 => (self.threshold >> 8) as u8,
-			0x0c201002 => (self.threshold >> 16) as u8,
-			0x0c201003 => (self.threshold >> 24) as u8,
-			0x0c201004 => self.irq as u8,
-			0x0c201005 => (self.irq >> 8) as u8,
-			0x0c201006 => (self.irq >> 16) as u8,
-			0x0c201007 => (self.irq >> 24) as u8,
-			_ => 0
-		}
-	}
-
+impl Device for Plic {
 	/// Stores register content
 	///
 	/// # Arguments
 	/// * `address`
 	/// * `value`
-	pub fn store(&mut self, address: u64, value: u8) {
+	fn store_u8(&mut self, address: u64, value: u8) {
 		//println!("PLIC Store AD:{:X} VAL:{:X}", address, value);
 		match address {
 			0x0c000000..=0x0c000fff => {
@@ -222,5 +188,42 @@ impl Plic {
 			},
 			_ => {}
 		};
+	}
+
+	/// Loads register content
+	///
+	/// # Arguments
+	/// * `address`
+	fn load_u8(&mut self, address: u64) -> u8 {
+		//println!("PLIC Load AD:{:X}", address);
+		match address {
+			0x0c000000..=0x0c000fff => {
+				let offset = address % 4;
+				let index = ((address - 0xc000000) >> 2) as usize;
+				let pos = offset << 3;
+				(self.priorities[index] >> pos) as u8
+			},
+			0x0c001000..=0x0c00107f => {
+				let index = (address - 0xc001000) as usize;
+				self.ips[index]
+			},
+			0x0c002080 => self.enabled as u8,
+			0x0c002081 => (self.enabled >> 8) as u8,
+			0x0c002082 => (self.enabled >> 16) as u8,
+			0x0c002083 => (self.enabled >> 24) as u8,
+			0x0c002084 => (self.enabled >> 32) as u8,
+			0x0c002085 => (self.enabled >> 40) as u8,
+			0x0c002086 => (self.enabled >> 48) as u8,
+			0x0c002087 => (self.enabled >> 56) as u8,
+			0x0c201000 => self.threshold as u8,
+			0x0c201001 => (self.threshold >> 8) as u8,
+			0x0c201002 => (self.threshold >> 16) as u8,
+			0x0c201003 => (self.threshold >> 24) as u8,
+			0x0c201004 => self.irq as u8,
+			0x0c201005 => (self.irq >> 8) as u8,
+			0x0c201006 => (self.irq >> 16) as u8,
+			0x0c201007 => (self.irq >> 24) as u8,
+			_ => 0
+		}
 	}
 }

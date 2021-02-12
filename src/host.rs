@@ -1,8 +1,4 @@
-/// Allows the host application to provide services to the emulation
-pub trait Host {
-    fn load(&self, address: u64) -> u8;
-    fn store(&self, address: u64, value: u8);
-}
+use device::device::Device;
 
 pub struct DummyHost {}
 
@@ -12,12 +8,12 @@ impl DummyHost {
     }
 }
 
-impl Host for DummyHost {
-    fn load(&self, _address: u64) -> u8 {
-        0
+impl Device for DummyHost {
+    fn store_u8(&mut self, _p_address: u64, _value: u8) {
+        // do nothing
     }
 
-    fn store(&self, _address: u64, _value: u8) {
-        // do nothing
+    fn load_u8(&mut self, _p_address: u64) -> u8 {
+        0
     }
 }
