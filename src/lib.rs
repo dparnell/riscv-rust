@@ -73,6 +73,9 @@ impl Emulator {
 	///
 	/// # Arguments
 	/// * `terminal`
+	/// * `host` a host device to allow the emulation to interact with the host environment.
+	/// 		The host device will be mapped from 0x00010000 to 0x0001FFFF in the emulation
+	///         address space
 	pub fn new_with_host(terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
 		Emulator {
 			cpu: Cpu::new(terminal, host),
