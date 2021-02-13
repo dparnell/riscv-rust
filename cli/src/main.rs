@@ -103,7 +103,16 @@ fn main () -> std::io::Result<()> {
 
 	let mut emulator = Emulator::new(get_terminal(terminal_type));
 	emulator.setup_program(elf_contents);
-	
+
+	println!("Symbols:");
+	for k in emulator.get_symbols() {
+		let addr = emulator.get_addredd_of_symbol(k).unwrap();
+
+		println!("{:?}: {:#x}", k, addr);
+	}
+
+	println!("Entry point: {:#x}", emulator.get_cpu().read_pc());
+
 	match matches.opt_str("x") {
 		Some(x) => match x.as_str() {
 			"32" => {

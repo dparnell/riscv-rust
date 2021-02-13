@@ -339,6 +339,10 @@ impl Emulator {
 			None => None
 		}
 	}
+
+	pub fn get_symbols(&self) -> Vec<&String> {
+		self.symbol_map.keys().collect()
+	}
 }
 
 #[cfg(test)]
