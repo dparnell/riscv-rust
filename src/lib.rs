@@ -19,12 +19,13 @@ use cpu::{Cpu, Xlen};
 use elf_analyzer::{ElfAnalyzer};
 use terminal::Terminal;
 use device::device::Device;
+use host::DummyHost;
 
 /// RISC-V emulator. It emulates RISC-V CPU and peripheral devices.
 ///
 /// Sample code to run the emulator.
 /// ```ignore
-/// // Creates an emulator with arbitary terminal
+/// // Creates an emulator with arbitary terminal and a dummy host device
 /// let mut emulator = Emulator::new(Box::new(DefaultTerminal::new()));
 /// // Set up program content binary
 /// emulator.setup_program(program_content);
@@ -55,7 +56,24 @@ impl Emulator {
 	/// 
 	/// # Arguments
 	/// * `terminal`
-	pub fn new(terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
+	pub fn new(terminal: Box<dyn Terminal>) -> Self {
+		Emulator {
+			cpu: Cpu::new(terminal, Box::new(DummyHost::new())),
+
+			symbol_map: FnvHashMap::default(),
+
+			// These can be updated in setup_program()
+			is_test: false,
+			tohost_addr: 0 // assuming tohost_addr is non-zero if exists
+		}
+	}
+
+	/// Creates a new `Emulator`. [`Terminal`](terminal/trait.Terminal.html)
+	/// is internally used for transferring input/output data to/from `Emulator`.
+	///
+	/// # Arguments
+	/// * `terminal`
+	pub fn new_with_host(terminal: Box<dyn Terminal>, host: Box<dyn Device>) -> Self {
 		Emulator {
 			cpu: Cpu::new(terminal, host),
 
@@ -101,7 +119,7 @@ impl Emulator {
 
 			// It seems in riscv-tests ends with end code
 			// written to a certain physical memory address
-			// (0x80001000 in mose test cases) so checking
+			// (0x80001000 in most test cases) so checking
 			// the data in the address and terminating the test
 			// if non-zero data is written.
 			// End code 1 seems to mean pass.
